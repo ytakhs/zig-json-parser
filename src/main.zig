@@ -1,10 +1,22 @@
 const std = @import("std");
 const testing = std.testing;
 
-export fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+pub const Parser = struct {
+    alloc: std.mem.Allocator,
+    buf: []const u8,
 
-test "basic add functionality" {
-    try testing.expect(add(3, 7) == 10);
+    pub fn init(alloc: std.mem.Allocator, buf: []const u8) Parser {
+        return .{ .alloc = alloc, .buf = buf };
+    }
+
+    pub fn parse(this: *Parser) !void {
+        std.debug.print("{s}\n", .{this.buf});
+    }
+};
+
+test {
+    const alloc = std.testing.allocator;
+
+    var parser = Parser.init(alloc, "{}");
+    _ = try parser.parse();
 }
