@@ -106,5 +106,5 @@ test {
     try std.testing.expectEqual(Value.Null, try Parser.init(alloc, "null").parse());
     try std.testing.expectEqual(Value{ .Boolean = true }, try Parser.init(alloc, "true").parse());
     try std.testing.expectEqual(Value{ .Boolean = false }, try Parser.init(alloc, "false").parse());
-    try std.testing.expect(std.mem.eql(u8, "foo", (try Parser.init(alloc, "\"foo\"").parse()).String));
+    try std.testing.expectEqualStrings("foo", (try Parser.init(alloc, "\"foo\"").parse()).String);
 }
