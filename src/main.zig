@@ -13,7 +13,17 @@ const Value = union(enum) {
     Array: std.ArrayList(Value),
 
     pub fn deinit(self: *Value) void {
-        self.Array.deinit();
+        switch (self.*) {
+            Value.Array => |a| {
+                for (a.items) |i| {
+                    var it = i;
+                    it.deinit();
+                }
+
+                a.deinit();
+            },
+            else => {},
+        }
     }
 };
 
@@ -36,12 +46,15 @@ pub const Parser = struct {
         self.skipWhitespace();
 
         const p = self.buf[self.cur];
+
         return switch (p) {
             'n' => Value{ .Null = try self.parseNull() },
             't', 'f' => Value{ .Boolean = try self.parseBoolean() },
             '"' => Value{ .String = try self.parseString() },
             '[' => Value{ .Array = try self.parseArray() },
-            else => Error.ParserError,
+            else => {
+                return Error.ParserError;
+            },
         };
     }
 
@@ -49,6 +62,7 @@ pub const Parser = struct {
         const v = self.peek(4) orelse return Error.ParserError;
 
         if (std.mem.eql(u8, v, "null")) {
+            self.cur += 4;
             return;
         }
 
@@ -59,11 +73,13 @@ pub const Parser = struct {
         switch (self.buf[self.cur]) {
             't' => {
                 const v = self.peek(4) orelse return Error.ParserError;
+                self.cur += 4;
 
                 return std.mem.eql(u8, v, "true");
             },
             'f' => {
                 const v = self.peek(5) orelse return Error.ParserError;
+                self.cur += 5;
 
                 return !std.mem.eql(u8, v, "false");
             },
@@ -95,19 +111,12 @@ pub const Parser = struct {
         while (true) : (self.cur += 1) {
             self.skipWhitespace();
 
-            var start = self.cur;
-            var end = self.cur;
-
-            while (self.buf[end] != ',' and self.buf[end] != ']') : (end += 1) {}
-
-            self.cur = end;
-
-            var p = Parser.init(self.alloc, self.buf[start..end]);
-
-            arr.append(try p.parse()) catch return Error.AllocError;
-
-            if (self.buf[self.cur] == ']') {
-                break;
+            switch (self.buf[self.cur]) {
+                ',', ']' => break,
+                else => {
+                    const v = try self.parse();
+                    arr.append(v) catch return Error.AllocError;
+                },
             }
         }
 
@@ -115,11 +124,11 @@ pub const Parser = struct {
     }
 
     pub fn peek(self: *Self, n: usize) ?[]const u8 {
-        if (self.buf.len < n) {
+        if (self.buf.len < self.cur + n) {
             return null;
         }
 
-        return self.buf[0..n];
+        return self.buf[self.cur .. self.cur + n];
     }
 
     fn skipWhitespace(self: *Self) void {
@@ -142,10 +151,11 @@ test {
     try std.testing.expectEqual(Value{ .Boolean = false }, try Parser.init(alloc, "false").parse());
     try std.testing.expectEqualStrings("foo", (try Parser.init(alloc, "\"foo\"").parse()).String);
 
-    var v = try Parser.init(alloc, "[true, null, \"foo\"]").parse();
+    var v = try Parser.init(alloc, "[true, null, [\"foo\"]]").parse();
     try std.testing.expect(.Array == v);
     try std.testing.expect(.Boolean == v.Array.items[0]);
     try std.testing.expect(.Null == v.Array.items[1]);
-    try std.testing.expect(.String == v.Array.items[2]);
+    try std.testing.expect(.Array == v.Array.items[2]);
+    try std.testing.expect(.String == v.Array.items[2].Array.items[0]);
     defer v.deinit();
 }
