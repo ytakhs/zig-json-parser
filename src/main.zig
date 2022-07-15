@@ -11,6 +11,7 @@ const Value = union(enum) {
     Boolean: bool,
     String: []const u8,
     Array: std.ArrayList(Value),
+    Object: std.StringArrayHashMap(Value),
 
     pub fn deinit(self: *Value) void {
         switch (self.*) {
@@ -21,6 +22,15 @@ const Value = union(enum) {
                 }
 
                 a.deinit();
+            },
+            Value.Object => |o| {
+                for (o.values()) |v| {
+                    var it = v;
+                    it.deinit();
+                }
+
+                var obj = o;
+                obj.deinit();
             },
             else => {},
         }
@@ -52,6 +62,7 @@ pub const Parser = struct {
             't', 'f' => Value{ .Boolean = try self.parseBoolean() },
             '"' => Value{ .String = try self.parseString() },
             '[' => Value{ .Array = try self.parseArray() },
+            '{' => Value{ .Object = try self.parseObject() },
             else => {
                 return Error.ParserError;
             },
@@ -62,7 +73,7 @@ pub const Parser = struct {
         const v = self.peek(4) orelse return Error.ParserError;
 
         if (std.mem.eql(u8, v, "null")) {
-            self.cur += 4;
+            self.cur += 3;
             return;
         }
 
@@ -73,15 +84,23 @@ pub const Parser = struct {
         switch (self.buf[self.cur]) {
             't' => {
                 const v = self.peek(4) orelse return Error.ParserError;
-                self.cur += 4;
+                self.cur += 3;
 
-                return std.mem.eql(u8, v, "true");
+                if (std.mem.eql(u8, v, "true")) {
+                    return true;
+                } else {
+                    return Error.ParserError;
+                }
             },
             'f' => {
                 const v = self.peek(5) orelse return Error.ParserError;
-                self.cur += 5;
+                self.cur += 4;
 
-                return !std.mem.eql(u8, v, "false");
+                if (std.mem.eql(u8, v, "false")) {
+                    return false;
+                } else {
+                    return Error.ParserError;
+                }
             },
             else => return Error.ParserError,
         }
@@ -112,7 +131,10 @@ pub const Parser = struct {
             self.skipWhitespace();
 
             switch (self.buf[self.cur]) {
-                ',', ']' => break,
+                ',' => {},
+                ']' => {
+                    break;
+                },
                 else => {
                     const v = try self.parse();
                     arr.append(v) catch return Error.AllocError;
@@ -121,6 +143,35 @@ pub const Parser = struct {
         }
 
         return arr;
+    }
+
+    fn parseObject(self: *Parser) Error!std.StringArrayHashMap(Value) {
+        var map = std.StringArrayHashMap(Value).init(self.alloc);
+        self.cur += 1;
+
+        while (true) : (self.cur += 1) {
+            self.skipWhitespace();
+
+            switch (self.buf[self.cur]) {
+                ',' => {},
+                '}' => break,
+                else => {
+                    const key = try self.parseString();
+
+                    self.skipWhitespace();
+                    self.cur += 1;
+                    if (self.buf[self.cur] != ':') {
+                        return Error.ParserError;
+                    }
+                    self.cur += 1;
+                    const v = try self.parse();
+
+                    try map.put(key, v) catch Error.ParserError;
+                },
+            }
+        }
+
+        return map;
     }
 
     pub fn peek(self: *Self, n: usize) ?[]const u8 {
@@ -151,11 +202,14 @@ test {
     try std.testing.expectEqual(Value{ .Boolean = false }, try Parser.init(alloc, "false").parse());
     try std.testing.expectEqualStrings("foo", (try Parser.init(alloc, "\"foo\"").parse()).String);
 
-    var v = try Parser.init(alloc, "[true, null, [\"foo\"]]").parse();
+    var v = try Parser.init(alloc, "[true, null, [\"foo\"], [null], {\"foo\": \"bar\"}]").parse();
     try std.testing.expect(.Array == v);
     try std.testing.expect(.Boolean == v.Array.items[0]);
     try std.testing.expect(.Null == v.Array.items[1]);
     try std.testing.expect(.Array == v.Array.items[2]);
     try std.testing.expect(.String == v.Array.items[2].Array.items[0]);
+    try std.testing.expect(.Array == v.Array.items[3]);
+    try std.testing.expect(.Null == v.Array.items[3].Array.items[0]);
+    try std.testing.expect(.Object == v.Array.items[4]);
     defer v.deinit();
 }
