@@ -224,6 +224,7 @@ test {
     try std.testing.expectEqualStrings("foo", (try Parser.init(alloc, "\"foo\"").parse()).String);
 
     var v = try Parser.init(alloc, "[true, null, [\"foo\"], [3.141592], {\"foo\": \"bar\"}]").parse();
+    defer v.deinit();
     try std.testing.expect(.Array == v);
     try std.testing.expect(.Boolean == v.Array.items[0]);
     try std.testing.expect(.Null == v.Array.items[1]);
@@ -232,5 +233,4 @@ test {
     try std.testing.expect(.Array == v.Array.items[3]);
     try std.testing.expect(.Number == v.Array.items[3].Array.items[0]);
     try std.testing.expect(.Object == v.Array.items[4]);
-    defer v.deinit();
 }
