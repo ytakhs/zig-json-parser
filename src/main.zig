@@ -4,12 +4,14 @@ const testing = std.testing;
 const Error = error{
     ParserError,
     AllocError,
+    ParseNumberError,
 };
 
 const Value = union(enum) {
     Null,
     Boolean: bool,
     String: []const u8,
+    Number: f64,
     Array: std.ArrayList(Value),
     Object: std.StringArrayHashMap(Value),
 
@@ -63,6 +65,7 @@ pub const Parser = struct {
             '"' => Value{ .String = try self.parseString() },
             '[' => Value{ .Array = try self.parseArray() },
             '{' => Value{ .Object = try self.parseObject() },
+            '0'...'9', '+', '-' => Value{ .Number = try self.parseNumber() },
             else => {
                 return Error.ParserError;
             },
@@ -120,6 +123,22 @@ pub const Parser = struct {
         self.cur = end;
 
         return self.buf[start..end];
+    }
+
+    fn parseNumber(self: *Self) Error!f64 {
+        const start = self.cur;
+
+        while (self.peek(1)) |c| : (self.cur += 1) {
+            switch (c[0]) {
+                '0'...'9', 'e', '.', '+', '-' => {},
+                else => {
+                    self.cur -= 1;
+                    break;
+                },
+            }
+        }
+
+        return std.fmt.parseFloat(f64, self.buf[start..self.cur]) catch return Error.ParseNumberError;
     }
 
     fn parseArray(self: *Parser) Error!std.ArrayList(Value) {
@@ -183,8 +202,8 @@ pub const Parser = struct {
     }
 
     fn skipWhitespace(self: *Self) void {
-        while (true) {
-            switch (self.buf[self.cur]) {
+        while (self.peek(1)) |c| {
+            switch (c[0]) {
                 ' ', '\n' => {
                     self.cur += 1;
                 },
@@ -200,16 +219,18 @@ test {
     try std.testing.expectEqual(Value.Null, try Parser.init(alloc, "null").parse());
     try std.testing.expectEqual(Value{ .Boolean = true }, try Parser.init(alloc, "true").parse());
     try std.testing.expectEqual(Value{ .Boolean = false }, try Parser.init(alloc, "false").parse());
+    try std.testing.expectEqual(Value{ .Number = 1.0 }, try Parser.init(alloc, "1.0").parse());
+    try std.testing.expectEqual(Value{ .Number = -3.141592 }, try Parser.init(alloc, "-3.141592").parse());
     try std.testing.expectEqualStrings("foo", (try Parser.init(alloc, "\"foo\"").parse()).String);
 
-    var v = try Parser.init(alloc, "[true, null, [\"foo\"], [null], {\"foo\": \"bar\"}]").parse();
+    var v = try Parser.init(alloc, "[true, null, [\"foo\"], [3.141592], {\"foo\": \"bar\"}]").parse();
     try std.testing.expect(.Array == v);
     try std.testing.expect(.Boolean == v.Array.items[0]);
     try std.testing.expect(.Null == v.Array.items[1]);
     try std.testing.expect(.Array == v.Array.items[2]);
     try std.testing.expect(.String == v.Array.items[2].Array.items[0]);
     try std.testing.expect(.Array == v.Array.items[3]);
-    try std.testing.expect(.Null == v.Array.items[3].Array.items[0]);
+    try std.testing.expect(.Number == v.Array.items[3].Array.items[0]);
     try std.testing.expect(.Object == v.Array.items[4]);
     defer v.deinit();
 }
